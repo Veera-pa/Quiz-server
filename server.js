@@ -1,17 +1,10 @@
 // ------------------------------------------------------------
-//  🔥 CONFIRM NEW SERVER BUILD
+//  🔥 QUIZ SERVER – ONE USB / TWO PHONES READY
 // ------------------------------------------------------------
-console.log("🔥🔥🔥 NEW SERVER BUILD LOADED: " + new Date().toLocaleString() + " 🔥🔥🔥");
-
-// ------------------------------------------------------------
-//  Basic Setup
-// ------------------------------------------------------------
-const express = require("express");
-const http = require("http");
-const cors = require("cors");
-const { Server } = require("socket.io");
-
-console.log("📁 Server path:", __dirname);
+const express = require('express');
+const http = require('http');
+const cors = require('cors');
+const { Server } = require('socket.io');
 
 const app = express();
 app.use(cors());
@@ -20,113 +13,116 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: '*',
   }
 });
 
 // ------------------------------------------------------------
-//  Players + Matchmaking Queues
+//  Rooms data
 // ------------------------------------------------------------
-let players = {};         // { socketId: {name, wins, rank, avatar} }
-let waitingUsers = {};    // { quizTitle: [socketId1, socketId2] }
+const rooms = {}; 
+// rooms[quizTitle] = { players: [{id, name, wins, rank, avatar}], roomId, status }
 
-console.log("🟢 Server initialized. Ready to accept connections.");
+console.log('🟢 Quiz server initialized');
+
+// ------------------------------------------------------------
+//  Helper: generate unique room ID
+// ------------------------------------------------------------
+function generateRoomId() {
+  return Math.random().toString(36).substr(2, 9);
+}
 
 // ------------------------------------------------------------
 //  Client Connected
 // ------------------------------------------------------------
-io.on("connection", (socket) => {
-  console.log(`🟩 User connected: ${socket.id}`);
+io.on('connection', (socket) => {
+  console.log('🟩 User connected:', socket.id);
 
   // ------------------------------
-  // Register Player
+  // Register player
   // ------------------------------
-  socket.on("register-player", (data) => {
-    players[socket.id] = {
-      name: data.name || "Unknown",
+  socket.on('register-player', (data) => {
+    socket.playerInfo = {
+      id: socket.id,
+      name: data.name || 'Unknown',
       wins: data.wins || 0,
-      rank: data.rank || "Rookie",
-      avatar: data.avatar || ""
+      rank: data.rank || 'Rookie',
+      avatar: data.avatar || ''
     };
-    console.log(`👤 Player registered: ${socket.id} ->`, players[socket.id]);
+    console.log(`👤 Player registered: ${socket.id} ->`, socket.playerInfo);
   });
 
   // ------------------------------
-  // Join Quiz / Matchmaking
+  // Join quiz
   // ------------------------------
-  socket.on("join-quiz", (quizTitle) => {
+  socket.on('join-quiz', (quizTitle) => {
     console.log(`🎮 ${socket.id} requested to join quiz: ${quizTitle}`);
 
-    // Initialize queue
-    if (!waitingUsers[quizTitle]) waitingUsers[quizTitle] = [];
-
-    // Add user if not already in queue
-    if (!waitingUsers[quizTitle].includes(socket.id)) {
-      waitingUsers[quizTitle].push(socket.id);
-      console.log(`➕ Added ${socket.id} to queue:`, waitingUsers[quizTitle]);
+    if (!rooms[quizTitle]) {
+      rooms[quizTitle] = { players: [], roomId: generateRoomId(), status: 'waiting' };
+      console.log(`📌 Created room for quiz: ${quizTitle}`);
     }
 
-    // Only one player → show waiting
-    if (waitingUsers[quizTitle].length === 1) {
-      console.log(`⏳ ${socket.id} is waiting for opponent...`);
-      socket.emit("waiting", { status: "Searching for opponent…" });
+    const room = rooms[quizTitle];
+
+    // Add player if not already in room
+    if (!room.players.find(p => p.id === socket.id)) {
+      room.players.push(socket.playerInfo);
+      socket.join(room.roomId);
+      console.log(`➕ Added ${socket.id} to room:`, room.roomId);
+    }
+
+    // Notify player waiting
+    if (room.players.length === 1) {
+      socket.emit('waiting', { status: 'Searching for opponent…' });
       return;
     }
 
-    // Two or more players → match first two
-    if (waitingUsers[quizTitle].length >= 2) {
-      const p1 = waitingUsers[quizTitle].shift();
-      const p2 = waitingUsers[quizTitle].shift();
-
-      const playerA = players[p1];
-      const playerB = players[p2];
-
-      // Check if any player disconnected
-      if (!playerA || !playerB) {
-        console.log("❌ One of the players disconnected during matchmaking");
-        if (playerA) waitingUsers[quizTitle].unshift(p1);
-        if (playerB) waitingUsers[quizTitle].unshift(p2);
-        return;
-      }
-
-      console.log(`🎯 MATCH READY: ${p1} <--> ${p2}`);
+    // Match players when 2 connected
+    if (room.players.length >= 2 && room.status === 'waiting') {
+      room.status = 'matched';
+      const [playerA, playerB] = room.players;
 
       // Send opponent info
-      io.to(p1).emit("opponent_found", {
+      io.to(playerA.id).emit('opponent_found', {
         opponentName: playerB.name,
         opponentWins: playerB.wins,
         opponentRank: playerB.rank,
-        opponentAvatar: playerB.avatar,
+        opponentAvatar: playerB.avatar
       });
 
-      io.to(p2).emit("opponent_found", {
+      io.to(playerB.id).emit('opponent_found', {
         opponentName: playerA.name,
         opponentWins: playerA.wins,
         opponentRank: playerA.rank,
-        opponentAvatar: playerA.avatar,
+        opponentAvatar: playerA.avatar
       });
+
+      console.log(`🎯 MATCH READY: ${playerA.id} <--> ${playerB.id}`);
 
       // Start quiz after 2 seconds
       setTimeout(() => {
-        io.to(p1).emit("quiz-starting");
-        io.to(p2).emit("quiz-starting");
-        console.log(`🚀 Quiz started for ${p1} & ${p2}`);
+        io.to(playerA.id).emit('quiz-starting');
+        io.to(playerB.id).emit('quiz-starting');
+        console.log(`🚀 Quiz started for room: ${room.roomId}`);
       }, 2000);
     }
   });
 
   // ------------------------------
-  // Handle Disconnect
+  // Handle disconnect
   // ------------------------------
-  socket.on("disconnect", () => {
-    console.log(`🟥 User disconnected: ${socket.id}`);
+  socket.on('disconnect', () => {
+    console.log('🟥 User disconnected:', socket.id);
 
-    // Keep player data in memory to allow reconnection (optional)
-    // delete players[socket.id];  // Uncomment if you want to remove immediately
+    // Remove from rooms
+    for (const quizTitle in rooms) {
+      const room = rooms[quizTitle];
+      room.players = room.players.filter(p => p.id !== socket.id);
 
-    // Remove from all queues
-    for (const quiz in waitingUsers) {
-      waitingUsers[quiz] = waitingUsers[quiz].filter(id => id !== socket.id);
+      // If room is empty, delete it
+      if (room.players.length === 0) delete rooms[quizTitle];
+      else if (room.players.length === 1) room.status = 'waiting';
     }
   });
 });
@@ -134,14 +130,12 @@ io.on("connection", (socket) => {
 // ------------------------------------------------------------
 //  Health Check
 // ------------------------------------------------------------
-app.get("/", (_, res) => {
-  res.send("🔥 Quiz server running. Build: " + new Date().toISOString());
+app.get('/', (_, res) => {
+  res.send('🔥 Quiz server running. Build: ' + new Date().toISOString());
 });
 
 // ------------------------------------------------------------
 //  Start Server
 // ------------------------------------------------------------
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () =>
-  console.log(`🚀 Server running on port ${PORT}`)
-);
+server.listen(PORT, () => console.log(`🚀 Quiz server running on port ${PORT}`));
