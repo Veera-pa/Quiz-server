@@ -5,77 +5,69 @@ const io = require("socket.io")(http, {
   cors: { origin: "*" }
 });
 
-// Store each player's details
-let players = {};       // { socketId: {name, avatar, wins, rank} }
-
-// Store waiting players for each quiz
-let waitingUsers = {};
+// Store waiting user per quiz
+let waitingUsers = {}; 
+// Example structure:
+// waitingUsers["General Knowledge"] = {
+//     socketId: "abc123",
+//     name: "Veera",
+//     avatar: "...",
+//     rank: 10,
+//     wins: 20
+// }
 
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
-  // 1️⃣ USER REGISTERS PROFILE DETAILS
-  socket.on("register_player", (data) => {
-    players[socket.id] = {
-      name: data.name || "Player",
-      avatar: data.avatar || "🙂",
-      wins: data.wins || 0,
-      rank: data.rank || 0
+  // Client sends: join_quiz + user details
+  socket.on("join_quiz", (data) => {
+    console.log(`User ${socket.id} joined quiz: ${data.quizTitle}`);
+
+    const quiz = data.quizTitle;
+
+    const player = {
+      socketId: socket.id,
+      name: data.name,
+      avatar: data.avatar,
+      rank: data.rank,
+      wins: data.wins
     };
-    console.log("Player registered:", players[socket.id]);
-  });
 
-  // 2️⃣ JOIN QUIZ
-  socket.on("join-quiz", (quizTitle) => {
-    console.log(`User ${socket.id} joined quiz: ${quizTitle}`);
-
-    if (!waitingUsers[quizTitle]) {
-      waitingUsers[quizTitle] = socket.id;
-
-      socket.emit("waiting", {
-        status: "Searching for opponent…"
-      });
-
-    } else {
-      const opponentId = waitingUsers[quizTitle];
-      delete waitingUsers[quizTitle];
-
-      console.log(`Matched ${socket.id} with ${opponentId}`);
-
-      const playerA = players[socket.id];
-      const playerB = players[opponentId];
-
-      // 3️⃣ SEND REAL DETAILS TO BOTH Players
-      io.to(socket.id).emit("opponent_found", {
-        opponentName: playerB.name,
-        opponentWins: playerB.wins,
-        opponentRank: playerB.rank,
-        opponentAvatar: playerB.avatar
-      });
-
-      io.to(opponentId).emit("opponent_found", {
-        opponentName: playerA.name,
-        opponentWins: playerA.wins,
-        opponentRank: playerA.rank,
-        opponentAvatar: playerA.avatar
-      });
-
-      // 4️⃣ START QUIZ AFTER 2 SECONDS
-      setTimeout(() => {
-        io.to(socket.id).emit("quiz-starting");
-        io.to(opponentId).emit("quiz-starting");
-      }, 2000);
+    // If NO one is waiting
+    if (!waitingUsers[quiz]) {
+      waitingUsers[quiz] = player;
+      socket.emit("waiting", "Waiting for opponent...");
+      console.log("User is waiting:", player.name);
+      return;
     }
+
+    // If someone is waiting → MATCH THEM
+    const opponent = waitingUsers[quiz];
+    delete waitingUsers[quiz];
+
+    console.log(`Matched ${player.socketId} with ${opponent.socketId}`);
+
+    // SEND OPPONENT DETAILS TO BOTH CLIENTS
+    io.to(player.socketId).emit("opponent_found", {
+      opponentName: opponent.name,
+      opponentAvatar: opponent.avatar,
+      opponentRank: opponent.rank,
+      opponentWins: opponent.wins
+    });
+
+    io.to(opponent.socketId).emit("opponent_found", {
+      opponentName: player.name,
+      opponentAvatar: player.avatar,
+      opponentRank: player.rank,
+      opponentWins: player.wins
+    });
   });
 
-  // 5️⃣ USER DISCONNECTED
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
 
-    delete players[socket.id];
-
     for (let quiz in waitingUsers) {
-      if (waitingUsers[quiz] === socket.id) {
+      if (waitingUsers[quiz].socketId === socket.id) {
         delete waitingUsers[quiz];
       }
     }
@@ -83,6 +75,4 @@ io.on("connection", (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+http.listen(PORT, () => console.log("Server running on port", PORT));
