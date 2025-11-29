@@ -66,7 +66,7 @@ io.on('connection', (socket) => {
     const room = rooms[quizTitle];
 
     // Add player if not already in room
-    if (!room.players.find(p => p.id === socket.id)) {
+    if (!room.players.find(p => p && p.id === socket.id)) {
       room.players.push(socket.playerInfo);
       socket.join(room.roomId);
       console.log(`➕ Added ${socket.id} to room:`, room.roomId);
@@ -110,18 +110,21 @@ io.on('connection', (socket) => {
   });
 
   // ------------------------------
-  // Handle disconnect
+  // Handle disconnect safely
   // ------------------------------
   socket.on('disconnect', () => {
     console.log('🟥 User disconnected:', socket.id);
 
-    // Remove player from all rooms
     for (const quizTitle in rooms) {
       const room = rooms[quizTitle];
-      room.players = room.players.filter(p => p.id !== socket.id);
 
-      // If room is empty, delete it
-      if (room.players.length === 0) delete rooms[quizTitle];
+      if (room.players && room.players.length > 0) {
+        room.players = room.players.filter(p => p && p.id && p.id !== socket.id);
+      }
+
+      if (!room.players || room.players.length === 0) {
+        delete rooms[quizTitle];
+      }
     }
   });
 });
