@@ -1,78 +1,55 @@
-const express = require("express");
-const app = express();
-const http = require("http").createServer(app);
-const io = require("socket.io")(http, {
-  cors: { origin: "*" }
-});
+socket.on("join-quiz", (quizTitle) => {
+  console.log(`User ${socket.id} joined quiz: ${quizTitle}`);
 
-// Store waiting user per quiz
-let waitingUsers = {}; 
-// Example structure:
-// waitingUsers["General Knowledge"] = {
-//     socketId: "abc123",
-//     name: "Veera",
-//     avatar: "...",
-//     rank: 10,
-//     wins: 20
-// }
+  // ➤ FIX 1: Clean old disconnected waiting users
+  if (waitingUsers[quizTitle] && !players[waitingUsers[quizTitle]]) {
+    console.log("Removing stale waiting user:", waitingUsers[quizTitle]);
+    delete waitingUsers[quizTitle];
+  }
 
-io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
+  // ➤ FIX 2: If no one is waiting, place user in queue
+  if (!waitingUsers[quizTitle]) {
+    waitingUsers[quizTitle] = socket.id;
 
-  // Client sends: join_quiz + user details
-  socket.on("join_quiz", (data) => {
-    console.log(`User ${socket.id} joined quiz: ${data.quizTitle}`);
-
-    const quiz = data.quizTitle;
-
-    const player = {
-      socketId: socket.id,
-      name: data.name,
-      avatar: data.avatar,
-      rank: data.rank,
-      wins: data.wins
-    };
-
-    // If NO one is waiting
-    if (!waitingUsers[quiz]) {
-      waitingUsers[quiz] = player;
-      socket.emit("waiting", "Waiting for opponent...");
-      console.log("User is waiting:", player.name);
-      return;
-    }
-
-    // If someone is waiting → MATCH THEM
-    const opponent = waitingUsers[quiz];
-    delete waitingUsers[quiz];
-
-    console.log(`Matched ${player.socketId} with ${opponent.socketId}`);
-
-    // SEND OPPONENT DETAILS TO BOTH CLIENTS
-    io.to(player.socketId).emit("opponent_found", {
-      opponentName: opponent.name,
-      opponentAvatar: opponent.avatar,
-      opponentRank: opponent.rank,
-      opponentWins: opponent.wins
+    socket.emit("waiting", {
+      status: "Searching for opponent…"
     });
 
-    io.to(opponent.socketId).emit("opponent_found", {
-      opponentName: player.name,
-      opponentAvatar: player.avatar,
-      opponentRank: player.rank,
-      opponentWins: player.wins
-    });
+    return;
+  }
+
+  // ➤ FIX 3: Match with valid opponent
+  const opponentId = waitingUsers[quizTitle];
+  delete waitingUsers[quizTitle];
+
+  console.log(`Matched ${socket.id} with ${opponentId}`);
+
+  const playerA = players[socket.id];
+  const playerB = players[opponentId];
+
+  // opponent got disconnected at wrong time
+  if (!playerA || !playerB) {
+    console.log("Opponent disconnected before match.");
+    return;
+  }
+
+  // send opponent data
+  io.to(socket.id).emit("opponent_found", {
+    opponentName: playerB.name,
+    opponentWins: playerB.wins,
+    opponentRank: playerB.rank,
+    opponentAvatar: playerB.avatar
   });
 
-  socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.id);
-
-    for (let quiz in waitingUsers) {
-      if (waitingUsers[quiz].socketId === socket.id) {
-        delete waitingUsers[quiz];
-      }
-    }
+  io.to(opponentId).emit("opponent_found", {
+    opponentName: playerA.name,
+    opponentWins: playerA.wins,
+    opponentRank: playerA.rank,
+    opponentAvatar: playerA.avatar
   });
+
+  setTimeout(() => {
+    io.to(socket.id).emit("quiz-starting");
+    io.to(opponentId).emit("quiz-starting");
+  }, 2000);
 });
-
-const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => console.log("Server running on port", PORT));
