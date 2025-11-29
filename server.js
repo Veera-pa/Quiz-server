@@ -1,5 +1,5 @@
 // ------------------------------------------------------------
-//  🔥 QUIZ SERVER – TIC TAC TOE STYLE MATCHING
+//  🔥 QUIZ SERVER – AUTO-REGISTER TIC TAC TOE STYLE
 // ------------------------------------------------------------
 const express = require('express');
 const http = require('http');
@@ -39,30 +39,21 @@ io.on('connection', (socket) => {
   console.log('🟩 User connected:', socket.id);
 
   // ------------------------------
-  // Register player
+  // Auto-register player
   // ------------------------------
-  socket.on('register-player', (data) => {
-    socket.playerInfo = {
-      id: socket.id,
-      name: data.name || 'Unknown',
-      wins: data.wins || 0,
-      rank: data.rank || 'Rookie',
-      avatar: data.avatar || ''
-    };
-    console.log(`👤 Player registered: ${socket.id} ->`, socket.playerInfo);
-  });
+  socket.playerInfo = {
+    id: socket.id,
+    name: `Player-${socket.id.slice(-4)}`,
+    wins: 0,
+    rank: 'Rookie',
+    avatar: ''
+  };
+  console.log(`👤 Auto-registered player: ${socket.id} ->`, socket.playerInfo);
 
   // ------------------------------
   // Join quiz
   // ------------------------------
   socket.on('join-quiz', (quizTitle) => {
-    // Safety check: must register first
-    if (!socket.playerInfo) {
-      console.log(`❌ ${socket.id} tried to join quiz without registering.`);
-      socket.emit('error', { message: 'Player not registered. Call register-player first.' });
-      return;
-    }
-
     console.log(`🎮 ${socket.id} requested to join quiz: ${quizTitle}`);
 
     if (!rooms[quizTitle]) {
@@ -90,6 +81,7 @@ io.on('connection', (socket) => {
     if (room.players.length === 2) {
       const [playerA, playerB] = room.players;
 
+      // Safety check
       if (!playerA || !playerB) {
         console.log('❌ Cannot start match: one of the players is undefined', room.players);
         return;
