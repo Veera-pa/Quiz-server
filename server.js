@@ -56,6 +56,13 @@ io.on('connection', (socket) => {
   // Join quiz
   // ------------------------------
   socket.on('join-quiz', (quizTitle) => {
+    // Safety check: must register first
+    if (!socket.playerInfo) {
+      console.log(`❌ ${socket.id} tried to join quiz without registering.`);
+      socket.emit('error', { message: 'Player not registered. Call register-player first.' });
+      return;
+    }
+
     console.log(`🎮 ${socket.id} requested to join quiz: ${quizTitle}`);
 
     if (!rooms[quizTitle]) {
@@ -82,6 +89,11 @@ io.on('connection', (socket) => {
     // Match players when exactly 2 are in the room
     if (room.players.length === 2) {
       const [playerA, playerB] = room.players;
+
+      if (!playerA || !playerB) {
+        console.log('❌ Cannot start match: one of the players is undefined', room.players);
+        return;
+      }
 
       // Send opponent info
       io.to(playerA.id).emit('opponent_found', {
