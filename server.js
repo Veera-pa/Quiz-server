@@ -1,5 +1,5 @@
 // ------------------------------------------------------------
-//  🔥 QUIZ SERVER – ONE USB / TWO PHONES READY
+//  🔥 QUIZ SERVER – TIC TAC TOE STYLE MATCHING
 // ------------------------------------------------------------
 const express = require('express');
 const http = require('http');
@@ -21,7 +21,7 @@ const io = new Server(server, {
 //  Rooms data
 // ------------------------------------------------------------
 const rooms = {}; 
-// rooms[quizTitle] = { players: [{id, name, wins, rank, avatar}], roomId, status }
+// rooms[quizTitle] = { players: [{id, name, wins, rank, avatar}], roomId }
 
 console.log('🟢 Quiz server initialized');
 
@@ -59,7 +59,7 @@ io.on('connection', (socket) => {
     console.log(`🎮 ${socket.id} requested to join quiz: ${quizTitle}`);
 
     if (!rooms[quizTitle]) {
-      rooms[quizTitle] = { players: [], roomId: generateRoomId(), status: 'waiting' };
+      rooms[quizTitle] = { players: [], roomId: generateRoomId() };
       console.log(`📌 Created room for quiz: ${quizTitle}`);
     }
 
@@ -75,12 +75,12 @@ io.on('connection', (socket) => {
     // Notify player waiting
     if (room.players.length === 1) {
       socket.emit('waiting', { status: 'Searching for opponent…' });
+      console.log(`⏳ ${socket.id} is waiting for opponent...`);
       return;
     }
 
-    // Match players when 2 connected
-    if (room.players.length >= 2 && room.status === 'waiting') {
-      room.status = 'matched';
+    // Match players when exactly 2 are in the room
+    if (room.players.length === 2) {
       const [playerA, playerB] = room.players;
 
       // Send opponent info
@@ -115,14 +115,13 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log('🟥 User disconnected:', socket.id);
 
-    // Remove from rooms
+    // Remove player from all rooms
     for (const quizTitle in rooms) {
       const room = rooms[quizTitle];
       room.players = room.players.filter(p => p.id !== socket.id);
 
       // If room is empty, delete it
       if (room.players.length === 0) delete rooms[quizTitle];
-      else if (room.players.length === 1) room.status = 'waiting';
     }
   });
 });
